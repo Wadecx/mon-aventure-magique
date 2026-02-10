@@ -1,7 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { writeFile, mkdir } from 'fs/promises'
-import { join } from 'path'
-import { existsSync } from 'fs'
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,24 +20,36 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Générer un nom de fichier unique
+    // Convertir l'image en base64 pour Cloudinary
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
-    const timestamp = Date.now()
-    const filename = `${timestamp}-${file.name.replace(/\s/g, '-')}`
+    const base64Image = `data:${file.type};base64,${buffer.toString('base64')}`
 
-    // Créer le dossier uploads s'il n'existe pas
-    const uploadsDir = join(process.cwd(), 'public', 'uploads')
-    if (!existsSync(uploadsDir)) {
-      await mkdir(uploadsDir, { recursive: true })
+    // Cloudinary upload
+    const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload`
+
+    const cloudinaryFormData = new FormData()
+    cloudinaryFormData.append('file', base64Image)
+    cloudinaryFormData.append('upload_preset', process.env.CLOUDINARY_UPLOAD_PRESET || 'ml_default')
+
+    const cloudinaryResponse = await fetch(cloudinaryUrl, {
+      method: 'POST',
+      body: cloudinaryFormData,
+    })
+
+    if (!cloudinaryResponse.ok) {
+      const errorData = await cloudinaryResponse.json()
+      console.error('Cloudinary error:', errorData)
+      return NextResponse.json(
+        { error: 'Erreur lors de l\'upload vers Cloudinary' },
+        { status: 500 }
+      )
     }
 
-    // Sauvegarder le fichier
-    const filepath = join(uploadsDir, filename)
-    await writeFile(filepath, buffer)
+    const cloudinaryData = await cloudinaryResponse.json()
+    const imageUrl = cloudinaryData.secure_url
 
-    // Retourner l'URL publique
-    const imageUrl = `/uploads/${filename}`
+    console.log('✅ Image uploadée sur Cloudinary:', imageUrl)
 
     return NextResponse.json({ imageUrl })
   } catch (error) {
